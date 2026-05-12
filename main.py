@@ -73,9 +73,8 @@ if __name__ == '__main__':
         notifier.startup(balance)
     except Exception:
         err = traceback.format_exc()
-        print(err)
-        notifier.error(f'啟動失敗：\n{err}')
-        raise
+        print(f'啟動失敗：\n{err}')
+        raise SystemExit(1)
 
     schedule.every(Config.SCAN_INTERVAL).minutes.do(scan)
     schedule.every().day.at(Config.DAILY_REPORT).do(daily_report)
