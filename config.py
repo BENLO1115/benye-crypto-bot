@@ -1,0 +1,14 @@
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+class Config:
+    API_KEY        = os.getenv('BINGX_API_KEY')
+    SECRET_KEY     = os.getenv('BINGX_SECRET_KEY')
+    DISCORD_WEBHOOK = os.getenv('DISCORD_WEBHOOK')
+    SYMBOL         = 'BTC-USDT'
+    LEVERAGE       = 125
+    RISK_PERCENT   = 0.01   # 每筆最大虧損 1%
+    SCAN_INTERVAL  = 15     # 分鐘
+    DAILY_REPORT   = '09:00'
