@@ -27,6 +27,8 @@ class BingXClient:
 
     def get_balance(self) -> float:
         d = self._get('/openApi/swap/v2/user/balance')
+        if 'data' not in d:
+            raise ValueError(f'BingX balance API error: {d}')
         return float(d['data']['balance']['availableMargin'])
 
     def get_klines(self, symbol: str, interval: str, limit: int = 100) -> list:
