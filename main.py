@@ -67,8 +67,15 @@ def daily_report():
         notifier.error(traceback.format_exc())
 
 if __name__ == '__main__':
-    print('本爺機器人啟動！')
-    notifier.startup(client.get_balance())
+    try:
+        print('本爺機器人啟動！')
+        balance = client.get_balance()
+        notifier.startup(balance)
+    except Exception:
+        err = traceback.format_exc()
+        print(err)
+        notifier.error(f'啟動失敗：\n{err}')
+        raise
 
     schedule.every(Config.SCAN_INTERVAL).minutes.do(scan)
     schedule.every().day.at(Config.DAILY_REPORT).do(daily_report)
