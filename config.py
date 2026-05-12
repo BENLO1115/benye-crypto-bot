@@ -12,3 +12,5 @@ class Config:
     RISK_PERCENT   = 0.01   # 每筆最大虧損 1%
     SCAN_INTERVAL  = 15     # 分鐘
     DAILY_REPORT   = '09:00'
+    # 模擬模式：True = 只通知不下單，False = 真實下單
+    SIMULATION     = os.getenv('SIMULATION', 'true').lower() == 'true'

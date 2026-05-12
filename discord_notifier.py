@@ -8,11 +8,12 @@ class DiscordNotifier:
     def _send(self, embed: dict):
         requests.post(self.webhook, json={'embeds': [embed]}, timeout=10)
 
-    def trade_open(self, signal, order: dict, balance: float):
+    def trade_open(self, signal, order: dict, balance: float, simulation: bool = False):
         emoji = '🟢' if signal.direction == 'LONG' else '🔴'
         color = 0x2ecc71 if signal.direction == 'LONG' else 0xe74c3c
+        title = f'{"🧪 【模擬】" if simulation else ""}{emoji} 進場 — {signal.direction}'
         self._send({
-            'title': f'{emoji} 進場 — {signal.direction}',
+            'title': title,
             'color': color,
             'fields': [
                 {'name': '進場價',   'value': f'`${signal.entry:,.2f}`',       'inline': True},

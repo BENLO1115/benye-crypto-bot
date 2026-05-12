@@ -31,7 +31,13 @@ def scan():
         balance = client.get_balance()
         order   = risk.calc(signal, balance)
 
-        # 設定槓桿 + 逐倉模式
+        if Config.SIMULATION:
+            # 模擬模式：只發通知，不下單
+            notifier.trade_open(signal, order, balance, simulation=True)
+            print(f'[{now}] 【模擬】訊號通知已發送，未下單')
+            return
+
+        # 真實下單
         client.set_margin_type(Config.SYMBOL)
         client.set_leverage(Config.SYMBOL, Config.LEVERAGE, 'LONG')
         client.set_leverage(Config.SYMBOL, Config.LEVERAGE, 'SHORT')
