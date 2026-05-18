@@ -82,7 +82,7 @@ class BinanceClient:
         })
         return result if isinstance(result, list) else []
 
-    def place_tp_sl(self, symbol: str, pos_side: str, entry: float, tp: float, sl: float):
+    def place_tp_sl(self, symbol: str, pos_side: str, tp: float, sl: float):
         close_side = "SELL" if pos_side == "LONG" else "BUY"
 
         # 固定止盈
@@ -92,12 +92,9 @@ class BinanceClient:
             "closePosition": "true"
         })
 
-        # 移動止損：callback rate = SL 距離%，幣安限制 0.1~5.0
-        sl_pct   = abs(entry - sl) / entry * 100
-        callback = max(min(round(sl_pct, 1), 5.0), 0.1)
+        # 固定止損
         self._post("/fapi/v1/order", {
             "symbol": symbol, "side": close_side, "positionSide": pos_side,
-            "type": "TRAILING_STOP_MARKET",
-            "callbackRate": callback,
+            "type": "STOP_MARKET", "stopPrice": round(sl, 1),
             "closePosition": "true"
         })
