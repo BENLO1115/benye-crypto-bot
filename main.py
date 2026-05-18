@@ -1,11 +1,23 @@
-import schedule, time, traceback, json, os
+import schedule, time, traceback, json, os, logging
 from datetime import datetime, date
+from logging.handlers import RotatingFileHandler
 from config           import Config
 from binance_client   import BinanceClient
 from strategy         import StrategyEngine, Signal
 from risk_manager     import RiskManager
 from discord_notifier import DiscordNotifier
 import analyst
+
+# ── 持久化日誌（同時輸出到 Railway console 和本地 bot.log）──────────────────
+_fmt     = logging.Formatter('%(asctime)s  %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+_fh      = RotatingFileHandler('bot.log', maxBytes=2*1024*1024, backupCount=3, encoding='utf-8')
+_fh.setFormatter(_fmt)
+_sh      = logging.StreamHandler()
+_sh.setFormatter(_fmt)
+log      = logging.getLogger('bot')
+log.setLevel(logging.INFO)
+log.addHandler(_fh)
+log.addHandler(_sh)
 
 client   = BinanceClient(Config.API_KEY, Config.SECRET_KEY)
 strategy = StrategyEngine(client, Config.SYMBOL)
@@ -111,7 +123,7 @@ def _recover_position():
     # 有記錄，驗證 TP/SL
     ok = _verify_tp_sl(pos_data['pos_side'], pos_data['tp'], pos_data['sl'])
     status = 'TP/SL 正常' if ok else 'TP/SL 已補掛'
-    print(f'[啟動] 恢復倉位 {pos_data["pos_side"]} — {status}')
+    log.info(f'[啟動] 恢復倉位 {pos_data["pos_side"]} — {status}')
 
 
 # ── 處理掛單 ──────────────────────────────────────────────────────────────────
@@ -139,22 +151,22 @@ def _handle_pending(pending: dict, now: str, balance: float):
         s = load_state()
         s['trades'] += 1
         _save_state(s)
-        print(f'[{now}] LIMIT單成交，TP/SL 已確認，今日第 {s["trades"]} 筆')
+        log.info(f'[{now}] LIMIT單成交，TP/SL 已確認，今日第 {s["trades"]} 筆')
         clear_pending()
 
     elif status in ('CANCELED', 'REJECTED', 'EXPIRED'):
-        print(f'[{now}] 掛單已取消/失效，清除')
+        log.info(f'[{now}] 掛單已取消/失效，清除')
         clear_pending()
 
     else:
         elapsed = int(time.time()) - pending.get('placed_ts', 0)
         if elapsed > Config.LIMIT_EXPIRY_MIN * 60:
             client.cancel_order(pending['symbol'], pending['orderId'])
-            print(f'[{now}] 掛單超時 {Config.LIMIT_EXPIRY_MIN} 分鐘，已取消')
+            log.info(f'[{now}] 掛單超時 {Config.LIMIT_EXPIRY_MIN} 分鐘，已取消')
             clear_pending()
         else:
             mins, secs = divmod(elapsed, 60)
-            print(f'[{now}] 等待LIMIT成交... ({mins}分{secs}秒)')
+            log.info(f'[{now}] 等待LIMIT成交... ({mins}分{secs}秒)')
 
 
 # ── 主掃描邏輯 ────────────────────────────────────────────────────────────────
@@ -162,10 +174,10 @@ def _handle_pending(pending: dict, now: str, balance: float):
 def scan():
     try:
         now = datetime.now().strftime('%H:%M:%S')
-        print(f'[{now}] 掃描中...')
+        log.info(f'[{now}] 掃描中...')
 
         if Config.PAUSE_TRADING:
-            print(f'[{now}] 暫停交易中（PAUSE_TRADING=true）')
+            log.info(f'[{now}] 暫停交易中（PAUSE_TRADING=true）')
             return
 
         balance = client.get_balance()
@@ -175,7 +187,7 @@ def scan():
         if s['start_balance'] > 0:
             daily_pnl_pct = (balance - s['start_balance']) / s['start_balance']
             if daily_pnl_pct < -Config.MAX_DAILY_LOSS_PCT:
-                print(f'[{now}] 今日虧損 {daily_pnl_pct*100:.1f}%，已達上限，停止當日交易')
+                log.info(f'[{now}] 今日虧損 {daily_pnl_pct*100:.1f}%，已達上限，停止當日交易')
                 return
 
         # 處理現有掛單
@@ -194,26 +206,26 @@ def scan():
                 _verify_tp_sl(pos_data['pos_side'], pos_data['tp'], pos_data['sl'])
             else:
                 notifier.error('偵測到未追蹤倉位，請手動確認幣安 TP/SL')
-            print(f'[{now}] 已有倉位，略過')
+            log.info(f'[{now}] 已有倉位，略過')
             return
         elif pos_data:
             # 倉位已平，清除紀錄
             clear_position()
-            print(f'[{now}] 倉位已平，清除記錄')
+            log.info(f'[{now}] 倉位已平，清除記錄')
 
         # 找訊號
         signal = strategy.get_signal(Config.MIN_RR)
         if not signal:
-            print(f'[{now}] 無訊號')
+            log.info(f'[{now}] 無訊號')
             return
 
-        print(f'[{now}] 訊號：{signal.direction} @ {signal.entry:.2f} | {signal.reason}')
+        log.info(f'[{now}] 訊號：{signal.direction} @ {signal.entry:.2f} | {signal.reason}')
         order_info = risk.calc(signal, balance)
 
         if Config.SIMULATION:
             notifier.trade_open(signal, order_info, balance,
                                 leverage=Config.LEVERAGE, simulation=True)
-            print(f'[{now}] 【模擬】訊號通知已發送，未下單')
+            log.info(f'[{now}] 【模擬】訊號通知已發送，未下單')
             return
 
         client.set_margin_type(Config.SYMBOL)
@@ -238,13 +250,13 @@ def scan():
                 'order_info': order_info,
                 'placed_ts':  int(time.time()),
             })
-            print(f'[{now}] LIMIT掛單成功：{side} {order_info["qty"]} BTC @ {signal.entry:.2f}')
+            log.info(f'[{now}] LIMIT掛單成功：{side} {order_info["qty"]} BTC @ {signal.entry:.2f}')
         else:
             notifier.error(f'掛單失敗：{result}')
 
     except Exception:
         err = traceback.format_exc()
-        print(err)
+        log.error(err)
         notifier.error(err)
 
 
@@ -271,14 +283,14 @@ def daily_report():
 
 if __name__ == '__main__':
     try:
-        print('本爺機器人啟動！')
+        log.info('本爺機器人啟動！')
         balance      = client.get_balance()
         funding_rate = client.get_funding_rate(Config.SYMBOL)
         _recover_position()  # 恢復倉位狀態
         notifier.startup(balance, funding_rate)
     except Exception:
         err = traceback.format_exc()
-        print(f'啟動失敗：\n{err}')
+        log.error(f'啟動失敗：\n{err}')
         raise SystemExit(1)
 
     schedule.every(Config.SCAN_INTERVAL).minutes.do(scan)

@@ -43,11 +43,6 @@ class StrategyEngine:
 
     # ── 日線偏向（HTF Bias）──────────────────────────────────────────────────
     def _htf_bias(self, df_daily: pd.DataFrame) -> str:
-        """
-        日線連續更高高點+更高低點 = bullish
-        連續更低高點+更低低點 = bearish
-        否則 = neutral（多空都可做）
-        """
         s = self._swings(df_daily, w=5)
         highs = s['sh'].dropna()
         lows  = s['sl'].dropna()
@@ -56,11 +51,39 @@ class StrategyEngine:
             hl = lows.iloc[-1]  > lows.iloc[-2]
             lh = highs.iloc[-1] < highs.iloc[-2]
             ll = lows.iloc[-1]  < lows.iloc[-2]
-            if hh and hl:
-                return 'bullish'
-            if lh and ll:
-                return 'bearish'
+            if hh and hl: return 'bullish'
+            if lh and ll: return 'bearish'
         return 'neutral'
+
+    # ── Premium / Discount 區間 ───────────────────────────────────────────────
+    def _in_discount(self, df: pd.DataFrame, price: float) -> bool:
+        """
+        近期擺動範圍的下半段（折扣區）= 適合做多
+        無法判斷時預設允許
+        """
+        s = self._swings(df, w=5)
+        highs = s['sh'].dropna()
+        lows  = s['sl'].dropna()
+        if len(highs) == 0 or len(lows) == 0:
+            return True
+        recent_high = highs.tail(3).max()
+        recent_low  = lows.tail(3).min()
+        equilibrium = (recent_high + recent_low) / 2
+        return price <= equilibrium
+
+    def _in_premium(self, df: pd.DataFrame, price: float) -> bool:
+        """
+        近期擺動範圍的上半段（溢價區）= 適合做空
+        """
+        s = self._swings(df, w=5)
+        highs = s['sh'].dropna()
+        lows  = s['sl'].dropna()
+        if len(highs) == 0 or len(lows) == 0:
+            return True
+        recent_high = highs.tail(3).max()
+        recent_low  = lows.tail(3).min()
+        equilibrium = (recent_high + recent_low) / 2
+        return price >= equilibrium
 
     # ── 訂單塊偵測 ────────────────────────────────────────────────────────────
     def _order_blocks(self, df: pd.DataFrame) -> list:
@@ -87,11 +110,8 @@ class StrategyEngine:
                 gaps.append({'type':'bearish','high':df.iloc[i-1]['low'],'low':df.iloc[i+1]['high'],'i':i})
         return gaps[-15:]
 
-    # ── 新鮮度檢查（未被回測過的區間）────────────────────────────────────────
+    # ── 新鮮度檢查 ────────────────────────────────────────────────────────────
     def _is_fresh(self, df: pd.DataFrame, zone: dict) -> bool:
-        """
-        區間形成後，後續K線（不含當前）若有進入區間範圍 → 已被回測 → 失效
-        """
         post = df.iloc[zone['i'] + 2 : -1]
         for _, c in post.iterrows():
             if zone['type'] == 'bullish' and c['low'] <= zone['high'] and c['high'] >= zone['low']:
@@ -119,16 +139,22 @@ class StrategyEngine:
                     return level
         return None
 
-    # ── 位移確認（機構力道）──────────────────────────────────────────────────
+    # ── 位移確認（含成交量驗證）──────────────────────────────────────────────
     def _has_displacement(self, df: pd.DataFrame, direction: str) -> bool:
+        """
+        大實體K棒（實體 >= 55% 總幅）且成交量 >= 近20根均量 1.5 倍
+        確保是機構真實入場，非低量假動作
+        """
+        avg_vol = df['volume'].tail(20).mean()
         for _, c in df.tail(5).iterrows():
             body  = abs(c['close'] - c['open'])
             total = c['high'] - c['low']
             if total == 0:
                 continue
-            if direction == 'bull' and c['close'] > c['open'] and body / total >= 0.55:
+            vol_ok = c['volume'] >= avg_vol * 1.5
+            if direction == 'bull' and c['close'] > c['open'] and body / total >= 0.55 and vol_ok:
                 return True
-            if direction == 'bear' and c['close'] < c['open'] and body / total >= 0.55:
+            if direction == 'bear' and c['close'] < c['open'] and body / total >= 0.55 and vol_ok:
                 return True
         return False
 
@@ -149,24 +175,35 @@ class StrategyEngine:
                     return True
         return False
 
-    # ── BOS 確認 ──────────────────────────────────────────────────────────────
-    def _bos(self, df: pd.DataFrame, direction: str) -> bool:
-        s = self._swings(df, w=3)
+    # ── CHOCH（性格改變，比 BOS 更強的反轉確認）──────────────────────────────
+    def _choch(self, df: pd.DataFrame, direction: str) -> bool:
+        """
+        CHOCH = 先確認有前一段走勢，再看反轉突破
+        bullish: 前有下跌趨勢（更低低點）→ 價格突破近期擺動高點 → 性格轉變
+        bearish: 前有上漲趨勢（更高高點）→ 價格跌破近期擺動低點 → 性格轉變
+        """
+        s     = self._swings(df, w=3)
         price = df.iloc[-1]['close']
-        if direction == 'bullish':
-            highs = s['sh'].dropna()
-            return len(highs) >= 1 and price > highs.iloc[-1]
-        else:
-            lows = s['sl'].dropna()
-            return len(lows) >= 1 and price < lows.iloc[-1]
+        highs = s['sh'].dropna()
+        lows  = s['sl'].dropna()
+
+        if direction == 'bullish' and len(highs) >= 1 and len(lows) >= 2:
+            prior_downtrend = lows.iloc[-1] < lows.iloc[-2]
+            return prior_downtrend and price > highs.iloc[-1]
+
+        if direction == 'bearish' and len(lows) >= 1 and len(highs) >= 2:
+            prior_uptrend = highs.iloc[-1] > highs.iloc[-2]
+            return prior_uptrend and price < lows.iloc[-1]
+
+        return False
 
     # ── 完整 SMC 進場邏輯 ─────────────────────────────────────────────────────
     def _check_direction(self, obs, fvgs, df_ref, df15m, price,
                          label, bias, min_rr) -> Optional[Signal]:
         liq = self._liquidity_levels(df_ref)
 
-        # ── 做多（日線需為多頭或中性）──────────────────────────────────────
-        if bias != 'bearish':
+        # ── 做多 ──────────────────────────────────────────────────────────────
+        if bias != 'bearish' and self._in_discount(df_ref, price):
             swept_low = self._swept_liquidity(df_ref, liq['lows'], 'bull')
             if swept_low and self._has_displacement(df_ref, 'bull'):
                 b_obs  = [o for o in obs  if o['type']=='bullish'
@@ -176,7 +213,7 @@ class StrategyEngine:
                           and f['low'] <= price <= f['high']
                           and self._is_fresh(df_ref, f)]
                 zone = (b_obs or b_fvgs)[0] if (b_obs or b_fvgs) else None
-                if zone and self._zone_rejection(df_ref, zone, 'bull') and self._bos(df15m, 'bullish'):
+                if zone and self._zone_rejection(df_ref, zone, 'bull') and self._choch(df15m, 'bullish'):
                     sl  = swept_low * 0.9995
                     highs_above = [h for h in liq['highs'] if h > price]
                     tp  = min(highs_above) if highs_above else price * 1.008
@@ -185,10 +222,10 @@ class StrategyEngine:
                         entry = (zone['high'] + zone['low']) / 2
                         tag   = 'OB+FVG' if b_obs and b_fvgs else ('OB' if b_obs else 'FVG')
                         return Signal('LONG', round(entry, 1), round(sl, 1), round(tp, 1),
-                                      f'{label} [{bias}] 流動性掃除+{tag}拒絕+BOS↑ RR:{rr:.1f}')
+                                      f'{label} [{bias}/折扣區] 掃低+位移+{tag}+CHOCH↑ RR:{rr:.1f}')
 
-        # ── 做空（日線需為空頭或中性）──────────────────────────────────────
-        if bias != 'bullish':
+        # ── 做空 ──────────────────────────────────────────────────────────────
+        if bias != 'bullish' and self._in_premium(df_ref, price):
             swept_high = self._swept_liquidity(df_ref, liq['highs'], 'bear')
             if swept_high and self._has_displacement(df_ref, 'bear'):
                 s_obs  = [o for o in obs  if o['type']=='bearish'
@@ -198,7 +235,7 @@ class StrategyEngine:
                           and f['low'] <= price <= f['high']
                           and self._is_fresh(df_ref, f)]
                 zone = (s_obs or s_fvgs)[0] if (s_obs or s_fvgs) else None
-                if zone and self._zone_rejection(df_ref, zone, 'bear') and self._bos(df15m, 'bearish'):
+                if zone and self._zone_rejection(df_ref, zone, 'bear') and self._choch(df15m, 'bearish'):
                     sl  = swept_high * 1.0005
                     lows_below = [l for l in liq['lows'] if l < price]
                     tp  = max(lows_below) if lows_below else price * 0.992
@@ -207,7 +244,7 @@ class StrategyEngine:
                         entry = (zone['high'] + zone['low']) / 2
                         tag   = 'OB+FVG' if s_obs and s_fvgs else ('OB' if s_obs else 'FVG')
                         return Signal('SHORT', round(entry, 1), round(sl, 1), round(tp, 1),
-                                      f'{label} [{bias}] 流動性掃除+{tag}拒絕+BOS↓ RR:{rr:.1f}')
+                                      f'{label} [{bias}/溢價區] 掃高+位移+{tag}+CHOCH↓ RR:{rr:.1f}')
 
         return None
 
