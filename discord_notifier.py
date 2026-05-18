@@ -8,7 +8,7 @@ class DiscordNotifier:
     def _send(self, embed: dict):
         requests.post(self.webhook, json={'embeds': [embed]}, timeout=10)
 
-    def trade_open(self, signal, order: dict, balance: float, simulation: bool = False):
+    def trade_open(self, signal, order: dict, balance: float, leverage: int = 125, simulation: bool = False):
         emoji = '🟢' if signal.direction == 'LONG' else '🔴'
         color = 0x2ecc71 if signal.direction == 'LONG' else 0xe74c3c
         title = f'{"🧪 【模擬】" if simulation else ""}{emoji} 進場 — {signal.direction}'
@@ -20,8 +20,9 @@ class DiscordNotifier:
                 {'name': '止損',     'value': f'`${signal.stop_loss:,.2f}`',   'inline': True},
                 {'name': '止盈',     'value': f'`${signal.take_profit:,.2f}`', 'inline': True},
                 {'name': '倉位',     'value': f'`{order["qty"]} BTC`',         'inline': True},
-                {'name': '風險金額', 'value': f'`${order["risk_amt"]:.2f}`',   'inline': True},
+                {'name': '槓桿',     'value': f'`{leverage}x`',                'inline': True},
                 {'name': 'R:R',      'value': f'`1:{order["rr"]}`',            'inline': True},
+                {'name': '風險金額', 'value': f'`${order["risk_amt"]:.2f}`',   'inline': True},
                 {'name': '保證金',   'value': f'`${order["margin"]:.2f}`',     'inline': True},
                 {'name': '帳戶餘額', 'value': f'`${balance:.2f}`',             'inline': True},
                 {'name': '策略依據', 'value': signal.reason,                   'inline': False},

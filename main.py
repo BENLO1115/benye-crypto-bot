@@ -55,7 +55,7 @@ def scan():
         order   = risk.calc(signal, balance)
 
         if Config.SIMULATION:
-            notifier.trade_open(signal, order, balance, simulation=True)
+            notifier.trade_open(signal, order, balance, leverage=Config.LEVERAGE, simulation=True)
             print(f'[{now}] 【模擬】訊號通知已發送，未下單')
             return
 
@@ -71,7 +71,7 @@ def scan():
         if 'orderId' in result:
             client.place_tp_sl(Config.SYMBOL, pos_side,
                                signal.entry, signal.take_profit, signal.stop_loss)
-            notifier.trade_open(signal, order, balance)
+            notifier.trade_open(signal, order, balance, leverage=Config.LEVERAGE)
             # 記錄這筆交易
             s = load_state()
             s['trades'] += 1
