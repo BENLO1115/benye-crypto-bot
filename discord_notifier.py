@@ -30,8 +30,10 @@ class DiscordNotifier:
             'footer': {'text': f'本爺機器人 • {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}'}
         })
 
-    def daily_report(self, balance: float, trades_today: int, pnl_today: float):
+    def daily_report(self, balance: float, trades_today: int, pnl_today: float,
+                     funding_rate: float = 0.0):
         emoji = '📈' if pnl_today >= 0 else '📉'
+        fr_str = f'`{funding_rate:+.4f}%`'
         self._send({
             'title': f'{emoji} 每日報告',
             'color': 0x3498db,
@@ -39,6 +41,7 @@ class DiscordNotifier:
                 {'name': '帳戶餘額',   'value': f'`${balance:.2f} USDT`', 'inline': True},
                 {'name': '今日交易數', 'value': f'`{trades_today} 筆`',   'inline': True},
                 {'name': '今日損益',   'value': f'`${pnl_today:+.2f}`',   'inline': True},
+                {'name': '資金費率',   'value': fr_str,                   'inline': True},
             ],
             'footer': {'text': datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
         })
@@ -87,10 +90,13 @@ class DiscordNotifier:
             'footer': {'text': datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
         })
 
-    def startup(self, balance: float):
+    def startup(self, balance: float, funding_rate: float = 0.0):
         self._send({
             'title': '🚀 本爺機器人啟動',
             'color': 0x9b59b6,
-            'fields': [{'name': '帳戶餘額', 'value': f'`${balance:.2f} USDT`', 'inline': True}],
+            'fields': [
+                {'name': '帳戶餘額', 'value': f'`${balance:.2f} USDT`',       'inline': True},
+                {'name': '資金費率', 'value': f'`{funding_rate:+.4f}%`',      'inline': True},
+            ],
             'footer': {'text': datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
         })
