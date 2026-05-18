@@ -12,8 +12,9 @@ strategy = StrategyEngine(client, Config.SYMBOL)
 risk     = RiskManager(Config.RISK_PERCENT)
 notifier = DiscordNotifier(Config.DISCORD_WEBHOOK)
 
-STATE_FILE   = 'state.json'
-PENDING_FILE = 'pending.json'
+STATE_FILE    = 'state.json'
+PENDING_FILE  = 'pending.json'
+POSITION_FILE = 'position.json'
 
 
 # ── 每日狀態 ──────────────────────────────────────────────────────────────────
@@ -54,14 +55,79 @@ def clear_pending():
     if os.path.exists(PENDING_FILE):
         os.remove(PENDING_FILE)
 
+
+# ── 倉位狀態管理 ──────────────────────────────────────────────────────────────
+
+def load_position() -> dict:
+    if os.path.exists(POSITION_FILE):
+        with open(POSITION_FILE) as f:
+            return json.load(f)
+    return {}
+
+def save_position(pos_side: str, tp: float, sl: float):
+    with open(POSITION_FILE, 'w') as f:
+        json.dump({'symbol': Config.SYMBOL, 'pos_side': pos_side,
+                   'tp': tp, 'sl': sl}, f)
+
+def clear_position():
+    if os.path.exists(POSITION_FILE):
+        os.remove(POSITION_FILE)
+
+
+# ── TP/SL 驗證（下單後確認有掛上去）──────────────────────────────────────────
+
+def _verify_tp_sl(pos_side: str, tp: float, sl: float) -> bool:
+    open_orders = client.get_open_orders(Config.SYMBOL)
+    has_tp = any(o.get('type') == 'TAKE_PROFIT_MARKET' and
+                 o.get('positionSide') == pos_side for o in open_orders)
+    has_sl = any(o.get('type') == 'STOP_MARKET' and
+                 o.get('positionSide') == pos_side for o in open_orders)
+
+    if not has_tp or not has_sl:
+        missing = []
+        if not has_tp: missing.append('止盈')
+        if not has_sl: missing.append('止損')
+        # 重新掛一次
+        client.place_tp_sl(Config.SYMBOL, pos_side, tp, sl)
+        notifier.error(f'TP/SL 缺失（{" / ".join(missing)}），已自動補掛')
+        return False
+    return True
+
+
+# ── 開機倉位恢復 ──────────────────────────────────────────────────────────────
+
+def _recover_position():
+    positions = client.get_positions(Config.SYMBOL)
+    if not positions:
+        clear_position()
+        return
+
+    pos_data = load_position()
+    if not pos_data:
+        # 有倉位但沒有記錄，無法自動恢復，通知人工處理
+        notifier.error('偵測到未追蹤倉位，請手動確認幣安 TP/SL 是否設定正確')
+        return
+
+    # 有記錄，驗證 TP/SL
+    ok = _verify_tp_sl(pos_data['pos_side'], pos_data['tp'], pos_data['sl'])
+    status = 'TP/SL 正常' if ok else 'TP/SL 已補掛'
+    print(f'[啟動] 恢復倉位 {pos_data["pos_side"]} — {status}')
+
+
+# ── 處理掛單 ──────────────────────────────────────────────────────────────────
+
 def _handle_pending(pending: dict, now: str, balance: float):
-    """檢查掛出去的 Limit 單是否成交"""
-    order = client.get_order(pending['symbol'], pending['orderId'])
+    order  = client.get_order(pending['symbol'], pending['orderId'])
     status = order.get('status', '')
 
     if status == 'FILLED':
         client.place_tp_sl(pending['symbol'], pending['pos_side'],
                            pending['tp'], pending['sl'])
+        # 驗證 TP/SL 有掛上
+        _verify_tp_sl(pending['pos_side'], pending['tp'], pending['sl'])
+        # 儲存倉位記錄
+        save_position(pending['pos_side'], pending['tp'], pending['sl'])
+
         sig = Signal(
             direction   = pending['direction'],
             entry       = pending['entry'],
@@ -73,7 +139,7 @@ def _handle_pending(pending: dict, now: str, balance: float):
         s = load_state()
         s['trades'] += 1
         _save_state(s)
-        print(f'[{now}] LIMIT單成交，今日第 {s["trades"]} 筆')
+        print(f'[{now}] LIMIT單成交，TP/SL 已確認，今日第 {s["trades"]} 筆')
         clear_pending()
 
     elif status in ('CANCELED', 'REJECTED', 'EXPIRED'):
@@ -98,7 +164,6 @@ def scan():
         now = datetime.now().strftime('%H:%M:%S')
         print(f'[{now}] 掃描中...')
 
-        # 手動暫停開關
         if Config.PAUSE_TRADING:
             print(f'[{now}] 暫停交易中（PAUSE_TRADING=true）')
             return
@@ -106,7 +171,7 @@ def scan():
         balance = client.get_balance()
         s       = load_state()
 
-        # 每日最大虧損檢查
+        # 每日最大虧損
         if s['start_balance'] > 0:
             daily_pnl_pct = (balance - s['start_balance']) / s['start_balance']
             if daily_pnl_pct < -Config.MAX_DAILY_LOSS_PCT:
@@ -119,10 +184,22 @@ def scan():
             _handle_pending(pending, now, balance)
             return
 
-        # 已有持倉
-        if client.get_positions(Config.SYMBOL):
+        # 檢查持倉
+        positions = client.get_positions(Config.SYMBOL)
+        pos_data  = load_position()
+
+        if positions:
+            if pos_data:
+                # 正常持倉中，順帶驗證 TP/SL
+                _verify_tp_sl(pos_data['pos_side'], pos_data['tp'], pos_data['sl'])
+            else:
+                notifier.error('偵測到未追蹤倉位，請手動確認幣安 TP/SL')
             print(f'[{now}] 已有倉位，略過')
             return
+        elif pos_data:
+            # 倉位已平，清除紀錄
+            clear_position()
+            print(f'[{now}] 倉位已平，清除記錄')
 
         # 找訊號
         signal = strategy.get_signal(Config.MIN_RR)
@@ -197,6 +274,7 @@ if __name__ == '__main__':
         print('本爺機器人啟動！')
         balance      = client.get_balance()
         funding_rate = client.get_funding_rate(Config.SYMBOL)
+        _recover_position()  # 恢復倉位狀態
         notifier.startup(balance, funding_rate)
     except Exception:
         err = traceback.format_exc()

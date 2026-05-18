@@ -22,8 +22,10 @@ class BinanceClient:
             try:
                 if method == 'GET':
                     r = requests.get(url, headers=hdrs, timeout=10)
-                else:
+                elif method == 'POST':
                     r = requests.post(url, headers=hdrs, timeout=10)
+                elif method == 'DELETE':
+                    r = requests.delete(url, headers=hdrs, timeout=10)
                 return r.json()
             except requests.exceptions.RequestException:
                 if attempt == self.RETRIES - 1:
@@ -35,6 +37,9 @@ class BinanceClient:
 
     def _post(self, path: str, params: dict = {}) -> dict:
         return self._request('POST', path, params)
+
+    def _delete(self, path: str, params: dict = {}) -> dict:
+        return self._request('DELETE', path, params)
 
     def get_balance(self) -> float:
         d = self._get("/fapi/v2/balance")
@@ -56,22 +61,22 @@ class BinanceClient:
             return []
         return [p for p in d if float(p.get("positionAmt", 0)) != 0]
 
+    def get_open_orders(self, symbol: str) -> list:
+        result = self._get("/fapi/v1/openOrders", {"symbol": symbol})
+        return result if isinstance(result, list) else []
+
     def get_order(self, symbol: str, order_id: int) -> dict:
         return self._get("/fapi/v1/order", {"symbol": symbol, "orderId": order_id})
 
     def cancel_order(self, symbol: str, order_id: int) -> dict:
-        return self._post("/fapi/v1/order/cancel" if False else "/fapi/v1/order",
-                          {"symbol": symbol, "orderId": order_id})
+        return self._delete("/fapi/v1/order", {"symbol": symbol, "orderId": order_id})
 
     def get_funding_rate(self, symbol: str) -> float:
         d = self._get("/fapi/v1/premiumIndex", {"symbol": symbol})
         return float(d.get("lastFundingRate", 0)) * 100 if isinstance(d, dict) else 0.0
 
     def get_income_history(self, income_type: str = 'REALIZED_PNL', limit: int = 50) -> list:
-        result = self._get('/fapi/v1/income', {
-            'incomeType': income_type,
-            'limit':      limit,
-        })
+        result = self._get('/fapi/v1/income', {'incomeType': income_type, 'limit': limit})
         return result if isinstance(result, list) else []
 
     def set_leverage(self, symbol: str, leverage: int, side: str = None) -> dict:
@@ -106,21 +111,13 @@ class BinanceClient:
             "timeInForce":  "GTC",
         })
 
-    def cancel_order(self, symbol: str, order_id: int) -> dict:
-        return self._post("/fapi/v1/order", {
-            "symbol":  symbol,
-            "orderId": order_id,
-        })
-
     def place_tp_sl(self, symbol: str, pos_side: str, tp: float, sl: float):
         close_side = "SELL" if pos_side == "LONG" else "BUY"
-
         self._post("/fapi/v1/order", {
             "symbol": symbol, "side": close_side, "positionSide": pos_side,
             "type": "TAKE_PROFIT_MARKET", "stopPrice": round(tp, 1),
             "closePosition": "true"
         })
-
         self._post("/fapi/v1/order", {
             "symbol": symbol, "side": close_side, "positionSide": pos_side,
             "type": "STOP_MARKET", "stopPrice": round(sl, 1),
