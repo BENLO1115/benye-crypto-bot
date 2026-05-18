@@ -46,6 +46,14 @@ class DiscordNotifier:
             'footer': {'text': datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
         })
 
+    def alert(self, title: str, message: str):
+        self._send({
+            'title': f'⚠️  {title}',
+            'color': 0xf39c12,
+            'description': message,
+            'footer': {'text': datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+        })
+
     def error(self, msg: str):
         self._send({
             'title': '⚠️ 機器人錯誤',

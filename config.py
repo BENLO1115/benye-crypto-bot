@@ -20,3 +20,6 @@ class Config:
 
     # 手動暫停開關（Railway 環境變數設 PAUSE_TRADING=true 即可）
     PAUSE_TRADING  = os.getenv('PAUSE_TRADING', 'false').lower() == 'true'
+
+    # API 金鑰建立日期（格式 YYYY-MM-DD），用於 90 天到期提醒
+    API_KEY_DATE   = os.getenv('BINANCE_API_KEY_DATE', '')

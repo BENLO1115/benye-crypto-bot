@@ -111,7 +111,7 @@ def run_backtest(days: int = 180):
 
         # 無倉位，尋找訊號
         try:
-            signal = strategy.get_signal()
+            signal = strategy.get_signal(min_rr=Config.MIN_RR, check_kill_zone=False)
         except Exception:
             continue
         if signal:

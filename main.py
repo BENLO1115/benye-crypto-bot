@@ -262,6 +262,23 @@ def scan():
 
 # ── 每日報告 ──────────────────────────────────────────────────────────────────
 
+def _check_api_key_expiry():
+    if not Config.API_KEY_DATE:
+        return
+    try:
+        from datetime import timedelta
+        key_date = datetime.strptime(Config.API_KEY_DATE, '%Y-%m-%d').date()
+        expiry   = key_date + timedelta(days=90)
+        days_left = (expiry - date.today()).days
+        if 0 <= days_left <= 2:
+            notifier.alert(
+                'API 金鑰即將到期',
+                f'幣安 API 金鑰將於 **{days_left} 天後**（{expiry}）到期。\n'
+                f'請前往幣安 → API 管理 → 重新建立金鑰，並更新 Railway 環境變數。'
+            )
+    except Exception:
+        pass
+
 def daily_report():
     try:
         balance      = client.get_balance()
@@ -272,6 +289,7 @@ def daily_report():
 
         analyst.sync(client)
         notifier.analyst_report(analyst.analyze())
+        _check_api_key_expiry()
 
         new_s = {'date': str(date.today()), 'start_balance': balance, 'trades': 0}
         _save_state(new_s)
