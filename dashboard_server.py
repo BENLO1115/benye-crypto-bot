@@ -117,69 +117,151 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>本爺機器人 Dashboard</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
-  body{background:#0d1117;color:#e6edf3;font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh;padding:20px}
-  h1{font-size:1.4rem;font-weight:600;color:#e6edf3}
-  .header{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;padding-bottom:16px;border-bottom:1px solid #21262d}
-  .last-update{font-size:.8rem;color:#8b949e}
-  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px}
-  .card{background:#161b22;border:1px solid #21262d;border-radius:10px;padding:18px}
-  .card-label{font-size:.75rem;color:#8b949e;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px}
-  .card-value{font-size:1.6rem;font-weight:700}
-  .green{color:#3fb950}.red{color:#f85149}.blue{color:#388bfd}.yellow{color:#d29922}
-  .pos-card{background:#161b22;border:1px solid #21262d;border-radius:10px;padding:18px;margin-bottom:20px}
-  .pos-header{display:flex;align-items:center;gap:10px;margin-bottom:12px}
-  .badge{padding:3px 10px;border-radius:20px;font-size:.75rem;font-weight:600}
-  .badge-long{background:#1a3a2a;color:#3fb950}.badge-short{background:#3a1a1a;color:#f85149}
-  .pos-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
-  .pos-item label{font-size:.7rem;color:#8b949e;display:block;margin-bottom:4px}
-  .pos-item span{font-size:1rem;font-weight:600}
-  .no-pos{color:#8b949e;font-size:.9rem;padding:8px 0}
-  .chart-card{background:#161b22;border:1px solid #21262d;border-radius:10px;padding:20px;margin-bottom:20px}
-  .chart-title{font-size:.85rem;color:#8b949e;margin-bottom:16px;font-weight:600;text-transform:uppercase;letter-spacing:.05em}
+  body{background:#f0f2f5;color:#1a1d23;font-family:'Inter',system-ui,sans-serif;min-height:100vh}
+
+  /* ── Header ── */
+  .topbar{background:#fff;border-bottom:1px solid #e8eaed;padding:0 24px;height:60px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:10;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+  .logo{display:flex;align-items:center;gap:10px}
+  .logo-icon{width:32px;height:32px;background:linear-gradient(135deg,#6366f1,#8b5cf6);border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:16px}
+  .logo-text{font-size:1rem;font-weight:700;color:#1a1d23;letter-spacing:-.02em}
+  .logo-sub{font-size:.7rem;color:#9ca3af;font-weight:400;display:block;line-height:1}
+  .live-dot{width:8px;height:8px;border-radius:50%;background:#10b981;box-shadow:0 0 0 3px rgba(16,185,129,.2);animation:pulse 2s infinite}
+  @keyframes pulse{0%,100%{box-shadow:0 0 0 3px rgba(16,185,129,.2)}50%{box-shadow:0 0 0 6px rgba(16,185,129,.05)}}
+  .topbar-right{display:flex;align-items:center;gap:10px}
+  .update-chip{background:#f3f4f6;border-radius:20px;padding:5px 12px;font-size:.72rem;color:#6b7280;font-weight:500}
+
+  /* ── Layout ── */
+  .page{max-width:900px;margin:0 auto;padding:20px 16px 40px}
+
+  /* ── Stat Cards ── */
+  .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:16px}
+  .card{background:#fff;border-radius:14px;padding:18px 20px;box-shadow:0 1px 3px rgba(0,0,0,.06),0 1px 8px rgba(0,0,0,.04);position:relative;overflow:hidden}
+  .card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--accent,#6366f1);border-radius:14px 14px 0 0}
+  .card-label{font-size:.72rem;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px}
+  .card-value{font-size:1.55rem;font-weight:800;letter-spacing:-.03em;color:#1a1d23}
+  .card-value.green{color:#10b981}
+  .card-value.red{color:#ef4444}
+  .card-value.blue{color:#6366f1}
+  .card-value.yellow{color:#f59e0b}
+  .card-icon{position:absolute;right:16px;top:50%;transform:translateY(-50%);font-size:1.6rem;opacity:.12}
+
+  /* ── Position Card ── */
+  .pos-card{background:#fff;border-radius:14px;padding:20px;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,.06),0 1px 8px rgba(0,0,0,.04)}
+  .section-title{font-size:.78rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.07em;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+  .badge{padding:4px 12px;border-radius:20px;font-size:.75rem;font-weight:700;letter-spacing:.04em}
+  .badge-long{background:#d1fae5;color:#059669}
+  .badge-short{background:#fee2e2;color:#dc2626}
+  .pos-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .pos-item label{font-size:.72rem;color:#9ca3af;font-weight:600;display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:.04em}
+  .pos-item span{font-size:1.05rem;font-weight:700;color:#1a1d23}
+  .no-pos{color:#d1d5db;font-size:.9rem;text-align:center;padding:16px 0;font-weight:500}
+
+  /* ── Chart Cards ── */
+  .chart-card{background:#fff;border-radius:14px;padding:20px;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,.06),0 1px 8px rgba(0,0,0,.04)}
   .chart-wrap{position:relative;height:220px}
+
+  /* ── Table ── */
   table{width:100%;border-collapse:collapse}
-  th{font-size:.7rem;color:#8b949e;text-transform:uppercase;letter-spacing:.05em;padding:8px 12px;text-align:left;border-bottom:1px solid #21262d}
-  td{padding:10px 12px;font-size:.85rem;border-bottom:1px solid #161b22}
+  th{font-size:.7rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.06em;padding:8px 14px;text-align:left;border-bottom:2px solid #f3f4f6}
+  td{padding:11px 14px;font-size:.85rem;border-bottom:1px solid #f9fafb;color:#374151}
   tr:last-child td{border-bottom:none}
-  tr:hover td{background:#1c2128}
-  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
-  .dot-green{background:#3fb950}.dot-red{background:#f85149}
-  @media(max-width:600px){.pos-grid{grid-template-columns:repeat(2,1fr)}.cards{grid-template-columns:repeat(2,1fr)}}
+  tr:hover td{background:#fafafa}
+  .pill{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:20px;font-size:.75rem;font-weight:600}
+  .pill-win{background:#d1fae5;color:#059669}
+  .pill-loss{background:#fee2e2;color:#dc2626}
+
+  /* ── Divider row ── */
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px}
+
+  /* ── Responsive ── */
+  @media(max-width:640px){
+    .cards{grid-template-columns:repeat(2,1fr)}
+    .pos-grid{grid-template-columns:repeat(2,1fr)}
+    .row2{grid-template-columns:1fr}
+    .topbar{padding:0 16px}
+    .logo-text{font-size:.9rem}
+  }
+  @media(max-width:360px){
+    .cards{grid-template-columns:1fr 1fr}
+    .card-value{font-size:1.3rem}
+  }
 </style>
 </head>
 <body>
-<div class="header">
-  <h1>本爺機器人 Dashboard</h1>
-  <span class="last-update" id="update-time">載入中...</span>
+
+<div class="topbar">
+  <div class="logo">
+    <div class="logo-icon">₿</div>
+    <div>
+      <span class="logo-text">本爺機器人</span>
+      <span class="logo-sub">BTC/USDT · 125x · SMC</span>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <div class="live-dot"></div>
+    <span class="update-chip" id="update-time">載入中...</span>
+  </div>
 </div>
 
-<div class="cards" id="stats-cards">
-  <div class="card"><div class="card-label">帳戶餘額</div><div class="card-value" id="balance">—</div></div>
-  <div class="card"><div class="card-label">今日損益</div><div class="card-value" id="today-pnl">—</div></div>
-  <div class="card"><div class="card-label">勝率</div><div class="card-value blue" id="win-rate">—</div></div>
-  <div class="card"><div class="card-label">盈利因子</div><div class="card-value" id="profit-factor">—</div></div>
-  <div class="card"><div class="card-label">最大回撤</div><div class="card-value" id="max-dd">—</div></div>
-  <div class="card"><div class="card-label">總交易數</div><div class="card-value" id="total-trades">—</div></div>
-</div>
+<div class="page">
 
-<div class="pos-card">
-  <div class="pos-header"><span style="font-size:.85rem;font-weight:600;color:#8b949e;text-transform:uppercase;letter-spacing:.05em">當前倉位</span><span id="pos-badge"></span></div>
-  <div id="pos-content"><div class="no-pos">無持倉</div></div>
-</div>
+  <div class="cards">
+    <div class="card" style="--accent:#6366f1">
+      <div class="card-label">帳戶餘額</div>
+      <div class="card-value" id="balance">—</div>
+      <span class="card-icon">💰</span>
+    </div>
+    <div class="card" style="--accent:#10b981">
+      <div class="card-label">今日損益</div>
+      <div class="card-value" id="today-pnl">—</div>
+      <span class="card-icon">📈</span>
+    </div>
+    <div class="card" style="--accent:#6366f1">
+      <div class="card-label">勝率</div>
+      <div class="card-value blue" id="win-rate">—</div>
+      <span class="card-icon">🎯</span>
+    </div>
+    <div class="card" style="--accent:#f59e0b">
+      <div class="card-label">盈利因子</div>
+      <div class="card-value" id="profit-factor">—</div>
+      <span class="card-icon">⚡</span>
+    </div>
+    <div class="card" style="--accent:#ef4444">
+      <div class="card-label">最大回撤</div>
+      <div class="card-value" id="max-dd">—</div>
+      <span class="card-icon">📉</span>
+    </div>
+    <div class="card" style="--accent:#8b5cf6">
+      <div class="card-label">總交易數</div>
+      <div class="card-value" id="total-trades">—</div>
+      <span class="card-icon">📊</span>
+    </div>
+  </div>
 
-<div class="chart-card">
-  <div class="chart-title">資金曲線（累計損益 USDT）</div>
-  <div class="chart-wrap"><canvas id="equityChart"></canvas></div>
-</div>
+  <div class="pos-card">
+    <div class="section-title">
+      當前倉位
+      <span id="pos-badge"></span>
+    </div>
+    <div id="pos-content"><div class="no-pos">— 目前無持倉 —</div></div>
+  </div>
 
-<div class="chart-card">
-  <div class="chart-title">最近 20 筆交易</div>
-  <table>
-    <thead><tr><th>時間</th><th>損益</th><th>結果</th></tr></thead>
-    <tbody id="trades-tbody"></tbody>
-  </table>
+  <div class="chart-card">
+    <div class="section-title">資金曲線（累計損益 USDT）</div>
+    <div class="chart-wrap"><canvas id="equityChart"></canvas></div>
+  </div>
+
+  <div class="chart-card">
+    <div class="section-title">最近 20 筆交易</div>
+    <table>
+      <thead><tr><th>時間</th><th>損益</th><th>結果</th></tr></thead>
+      <tbody id="trades-tbody"></tbody>
+    </table>
+  </div>
+
 </div>
 
 <script>
@@ -193,11 +275,11 @@ async function refresh(){
     const d = await r.json();
     if(d.error){ console.error(d.error); return; }
 
-    document.getElementById('update-time').textContent = '最後更新 ' + d.last_updated;
+    document.getElementById('update-time').textContent = d.last_updated.slice(11,16) + ' 更新';
     document.getElementById('balance').textContent = '$' + d.balance.toFixed(2);
 
     const tpEl = document.getElementById('today-pnl');
-    tpEl.textContent = fmt(d.today_pnl) + ' USDT';
+    tpEl.textContent = fmt(d.today_pnl) + ' U';
     tpEl.className = 'card-value ' + (d.today_pnl >= 0 ? 'green' : 'red');
 
     const pfEl = document.getElementById('profit-factor');
@@ -212,14 +294,13 @@ async function refresh(){
 
     document.getElementById('total-trades').textContent = d.total_trades + ' 筆';
 
-    // 倉位
     const posContent = document.getElementById('pos-content');
     const posBadge   = document.getElementById('pos-badge');
     if(d.position){
       const p = d.position;
       const isLong = p.direction === 'LONG';
       posBadge.innerHTML = `<span class="badge ${isLong?'badge-long':'badge-short'}">${p.direction}</span>`;
-      const pnlColor = p.unrealized_pnl >= 0 ? '#3fb950' : '#f85149';
+      const pnlColor = p.unrealized_pnl >= 0 ? '#059669' : '#dc2626';
       posContent.innerHTML = `<div class="pos-grid">
         <div class="pos-item"><label>進場價</label><span>$${p.entry.toLocaleString()}</span></div>
         <div class="pos-item"><label>標記價</label><span>$${p.mark.toLocaleString()}</span></div>
@@ -227,54 +308,43 @@ async function refresh(){
       </div>`;
     } else {
       posBadge.innerHTML = '';
-      posContent.innerHTML = '<div class="no-pos">無持倉</div>';
+      posContent.innerHTML = '<div class="no-pos">— 目前無持倉 —</div>';
     }
 
-    // 資金曲線
     const labels = d.equity.map(e=>e.date);
     const values = d.equity.map(e=>e.pnl);
-    const isPositive = values.length === 0 || values[values.length-1] >= 0;
-    const lineColor  = isPositive ? '#3fb950' : '#f85149';
+    const isPos   = values.length === 0 || values[values.length-1] >= 0;
+    const lineClr = isPos ? '#6366f1' : '#ef4444';
+    const fillClr = isPos ? 'rgba(99,102,241,.08)' : 'rgba(239,68,68,.08)';
 
     if(equityChart){
       equityChart.data.labels = labels;
-      equityChart.data.datasets[0].data = values;
-      equityChart.data.datasets[0].borderColor = lineColor;
+      equityChart.data.datasets[0].data   = values;
+      equityChart.data.datasets[0].borderColor     = lineClr;
+      equityChart.data.datasets[0].backgroundColor = fillClr;
       equityChart.update('none');
     } else {
       const ctx = document.getElementById('equityChart').getContext('2d');
       equityChart = new Chart(ctx, {
         type: 'line',
-        data: {
-          labels,
-          datasets:[{
-            data: values,
-            borderColor: lineColor,
-            backgroundColor: isPositive ? 'rgba(63,185,80,.08)' : 'rgba(248,81,73,.08)',
-            borderWidth: 2,
-            pointRadius: values.length > 30 ? 0 : 3,
-            fill: true,
-            tension: 0.3,
-          }]
-        },
+        data: { labels, datasets:[{ data:values, borderColor:lineClr, backgroundColor:fillClr, borderWidth:2.5, pointRadius:values.length>30?0:4, pointBackgroundColor:'#fff', pointBorderColor:lineClr, pointBorderWidth:2, fill:true, tension:0.4 }] },
         options:{
           responsive:true, maintainAspectRatio:false,
-          plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label: c => fmt(c.raw)+' USDT' }}},
+          plugins:{ legend:{display:false}, tooltip:{ backgroundColor:'#fff', titleColor:'#374151', bodyColor:'#6b7280', borderColor:'#e5e7eb', borderWidth:1, padding:10, callbacks:{ label: c => ' ' + fmt(c.raw)+' USDT' }}},
           scales:{
-            x:{ grid:{color:'#21262d'}, ticks:{color:'#8b949e', maxTicksLimit:8, font:{size:11}}},
-            y:{ grid:{color:'#21262d'}, ticks:{color:'#8b949e', font:{size:11}, callback: v => fmt(v)+' U'}}
+            x:{ grid:{color:'#f3f4f6'}, ticks:{color:'#9ca3af', maxTicksLimit:8, font:{size:11}}},
+            y:{ grid:{color:'#f3f4f6'}, ticks:{color:'#9ca3af', font:{size:11}, callback: v => fmt(v)+'U'}}
           }
         }
       });
     }
 
-    // 最近交易
     const tbody = document.getElementById('trades-tbody');
     tbody.innerHTML = d.recent_trades.map(t => `
       <tr>
-        <td style="color:#8b949e">${t.time}</td>
-        <td style="color:${t.win?'#3fb950':'#f85149'};font-weight:600">${fmt(t.pnl)} USDT</td>
-        <td><span class="dot ${t.win?'dot-green':'dot-red'}"></span>${t.win?'獲利':'虧損'}</td>
+        <td style="color:#9ca3af;font-size:.8rem">${t.time}</td>
+        <td style="color:${t.win?'#059669':'#dc2626'};font-weight:700">${fmt(t.pnl)} USDT</td>
+        <td><span class="pill ${t.win?'pill-win':'pill-loss'}">${t.win?'獲利':'虧損'}</span></td>
       </tr>`).join('');
 
   } catch(e){ console.error(e); }
