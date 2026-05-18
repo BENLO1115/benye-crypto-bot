@@ -17,7 +17,10 @@ class StrategyEngine:
 
     # ── 資料解析 ──────────────────────────────────────────────────────────
     def _df(self, klines: list) -> pd.DataFrame:
-        df = pd.DataFrame(klines)
+        # 幣安 kline 回傳 list of arrays: [open_time, open, high, low, close, volume, ...]
+        cols = ['time','open','high','low','close','volume',
+                'close_time','qav','trades','tbbav','tbqav','ignore']
+        df = pd.DataFrame(klines, columns=cols)
         for col in ['open', 'high', 'low', 'close', 'volume']:
             df[col] = df[col].astype(float)
         df['time'] = pd.to_datetime(df['time'], unit='ms')
