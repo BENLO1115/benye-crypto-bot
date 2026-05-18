@@ -50,6 +50,42 @@ class DiscordNotifier:
             'footer': {'text': datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
         })
 
+    def analyst_report(self, stats: dict):
+        if stats['status'] == 'no_data':
+            return
+        total = stats['total']
+        wr    = stats['win_rate'] * 100
+        pf    = stats['profit_factor']
+        cl    = stats['consec_loss']
+
+        if stats['status'] == 'healthy':
+            title = '📊 策略分析師 — 表現正常'
+            color = 0x2ecc71
+            desc  = f'最近 {total} 筆穩定，繼續執行。'
+        else:
+            title = '🔍 策略分析師 — 發現問題'
+            color = 0xe67e22
+            lines = ['**問題：**']
+            for i, issue in enumerate(stats['issues'], 1):
+                lines.append(f'{i}. {issue}')
+            lines.append('\n**優化建議：**')
+            for i, sug in enumerate(stats['suggestions'], 1):
+                lines.append(f'{i}. {sug}')
+            desc = '\n'.join(lines)
+
+        self._send({
+            'title':       title,
+            'color':       color,
+            'description': desc,
+            'fields': [
+                {'name': '樣本',     'value': f'`{total} 筆`',        'inline': True},
+                {'name': '勝率',     'value': f'`{wr:.0f}%`',         'inline': True},
+                {'name': '盈利因子', 'value': f'`{pf:.2f}`',          'inline': True},
+                {'name': '連敗筆數', 'value': f'`{cl} 筆`',           'inline': True},
+            ],
+            'footer': {'text': datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+        })
+
     def startup(self, balance: float):
         self._send({
             'title': '🚀 本爺機器人啟動',

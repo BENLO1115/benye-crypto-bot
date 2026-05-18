@@ -75,6 +75,13 @@ class BinanceClient:
             "quantity":     qty,
         })
 
+    def get_income_history(self, income_type: str = 'REALIZED_PNL', limit: int = 50) -> list:
+        result = self._get('/fapi/v1/income', {
+            'incomeType': income_type,
+            'limit':      limit,
+        })
+        return result if isinstance(result, list) else []
+
     def place_tp_sl(self, symbol: str, pos_side: str, entry: float, tp: float, sl: float):
         close_side = "SELL" if pos_side == "LONG" else "BUY"
 

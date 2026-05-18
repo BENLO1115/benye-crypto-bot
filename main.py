@@ -5,6 +5,7 @@ from binance_client   import BinanceClient
 from strategy         import StrategyEngine
 from risk_manager     import RiskManager
 from discord_notifier import DiscordNotifier
+import analyst
 
 client   = BinanceClient(Config.API_KEY, Config.SECRET_KEY)
 strategy = StrategyEngine(client, Config.SYMBOL)
@@ -91,6 +92,11 @@ def daily_report():
         pnl     = balance - s['start_balance']
         trades  = s['trades']
         notifier.daily_report(balance, trades, pnl)
+
+        # 策略分析師：同步新PnL並發分析報告
+        analyst.sync(client)
+        notifier.analyst_report(analyst.analyze())
+
         # 重置隔天起點
         new_s = {'date': str(date.today()), 'start_balance': balance, 'trades': 0}
         _save_state(new_s)
