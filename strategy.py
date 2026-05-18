@@ -12,8 +12,8 @@ class Signal:
     reason:      str
 
 class StrategyEngine:
-    # 倫敦 08-10 UTC、紐約 13-16 UTC
-    KILL_ZONES = [(8, 10), (13, 16)]
+    # 倫敦 08-10 UTC、晚盤 11-14 UTC（台灣 19-22）、紐約 13-16 UTC
+    KILL_ZONES = [(8, 10), (11, 16)]
 
     def __init__(self, client, symbol: str = 'BTCUSDT'):
         self.client = client
