@@ -151,10 +151,10 @@ class StrategyEngine:
             total = c['high'] - c['low']
             if total == 0:
                 continue
-            vol_ok = c['volume'] >= avg_vol * 1.5
-            if direction == 'bull' and c['close'] > c['open'] and body / total >= 0.55 and vol_ok:
+            vol_ok = c['volume'] >= avg_vol * 1.2
+            if direction == 'bull' and c['close'] > c['open'] and body / total >= 0.45 and vol_ok:
                 return True
-            if direction == 'bear' and c['close'] < c['open'] and body / total >= 0.55 and vol_ok:
+            if direction == 'bear' and c['close'] < c['open'] and body / total >= 0.45 and vol_ok:
                 return True
         return False
 
@@ -207,10 +207,10 @@ class StrategyEngine:
             swept_low = self._swept_liquidity(df_ref, liq['lows'], 'bull')
             if swept_low and self._has_displacement(df_ref, 'bull'):
                 b_obs  = [o for o in obs  if o['type']=='bullish'
-                          and o['low'] <= price <= o['high']
+                          and o['low'] * 0.998 <= price <= o['high'] * 1.002
                           and self._is_fresh(df_ref, o)]
                 b_fvgs = [f for f in fvgs if f['type']=='bullish'
-                          and f['low'] <= price <= f['high']
+                          and f['low'] * 0.998 <= price <= f['high'] * 1.002
                           and self._is_fresh(df_ref, f)]
                 zone = (b_obs or b_fvgs)[0] if (b_obs or b_fvgs) else None
                 if zone and self._zone_rejection(df_ref, zone, 'bull') and self._choch(df15m, 'bullish'):
@@ -229,10 +229,10 @@ class StrategyEngine:
             swept_high = self._swept_liquidity(df_ref, liq['highs'], 'bear')
             if swept_high and self._has_displacement(df_ref, 'bear'):
                 s_obs  = [o for o in obs  if o['type']=='bearish'
-                          and o['low'] <= price <= o['high']
+                          and o['low'] * 0.998 <= price <= o['high'] * 1.002
                           and self._is_fresh(df_ref, o)]
                 s_fvgs = [f for f in fvgs if f['type']=='bearish'
-                          and f['low'] <= price <= f['high']
+                          and f['low'] * 0.998 <= price <= f['high'] * 1.002
                           and self._is_fresh(df_ref, f)]
                 zone = (s_obs or s_fvgs)[0] if (s_obs or s_fvgs) else None
                 if zone and self._zone_rejection(df_ref, zone, 'bear') and self._choch(df15m, 'bearish'):
