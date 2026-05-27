@@ -9,6 +9,9 @@ from config import Config
 from datetime import datetime, date
 import os
 
+# 只統計機器人上線後的交易（排除帳號歷史舊資料）
+BOT_START_TS = int(datetime.strptime(Config.BOT_START_DATE, '%Y-%m-%d').timestamp() * 1000)
+
 app    = Flask(__name__)
 client = BinanceClient(Config.API_KEY, Config.SECRET_KEY)
 
@@ -25,7 +28,10 @@ def api_data():
         positions = client.get_positions(Config.SYMBOL)
         income    = client.get_income_history('REALIZED_PNL', limit=500)
 
-        trades = [t for t in income if float(t.get('income', 0)) != 0]
+        # 只計算機器人上線後的交易，排除帳號舊歷史損益
+        trades = [t for t in income
+                  if float(t.get('income', 0)) != 0
+                  and int(t.get('time', 0)) >= BOT_START_TS]
         wins   = [t for t in trades if float(t['income']) > 0]
         losses = [t for t in trades if float(t['income']) < 0]
         total  = len(trades)

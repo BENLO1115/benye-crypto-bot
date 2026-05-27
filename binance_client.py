@@ -42,12 +42,13 @@ class BinanceClient:
         return self._request('DELETE', path, params)
 
     def get_balance(self) -> float:
+        """回傳 USDT 錢包餘額（walletBalance = 總餘額，含未實現損益前的本金）"""
         d = self._get("/fapi/v2/balance")
         if isinstance(d, dict):
             raise ValueError(f"Binance balance API error: {d}")
         for asset in d:
             if asset["asset"] == "USDT":
-                return float(asset["availableBalance"])
+                return float(asset["balance"])   # balance = 總餘額；availableBalance 會因掛單而偏低
         raise ValueError("USDT balance not found")
 
     def get_klines(self, symbol: str, interval: str, limit: int = 100) -> list:

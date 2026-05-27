@@ -23,3 +23,6 @@ class Config:
 
     # API 金鑰建立日期（格式 YYYY-MM-DD），用於 90 天到期提醒
     API_KEY_DATE   = os.getenv('BINANCE_API_KEY_DATE', '')
+
+    # 機器人正式上線日期（只統計此日期之後的交易，排除舊帳號歷史資料）
+    BOT_START_DATE = os.getenv('BOT_START_DATE', '2026-05-18')

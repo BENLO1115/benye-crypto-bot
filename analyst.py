@@ -2,7 +2,9 @@
 策略分析師 — 自動同步幣安已實現損益，偵測策略問題並提出優化建議
 """
 import json, os
+from datetime import datetime
 from binance_client import BinanceClient
+from config import Config
 
 HISTORY_FILE = 'trades_history.json'
 WINDOW       = 20   # 分析最近 N 筆
@@ -18,7 +20,13 @@ THRESHOLDS = {
 def _load() -> list:
     if os.path.exists(HISTORY_FILE):
         with open(HISTORY_FILE) as f:
-            return json.load(f)
+            data = json.load(f)
+        # 過濾掉機器人上線前的舊交易（向後相容：自動清理舊資料）
+        bot_start_ts = int(datetime.strptime(Config.BOT_START_DATE, '%Y-%m-%d').timestamp() * 1000)
+        filtered = [t for t in data if t.get('time', 0) >= bot_start_ts]
+        if len(filtered) != len(data):
+            _save(filtered)   # 寫回清乾淨的版本
+        return filtered
     return []
 
 
@@ -33,11 +41,17 @@ def sync(client: BinanceClient) -> int:
     if not records:
         return 0
 
+    # 只計算機器人上線後的交易，排除帳號舊歷史資料
+    bot_start_ts = int(datetime.strptime(Config.BOT_START_DATE, '%Y-%m-%d').timestamp() * 1000)
+
     trades      = _load()
     existing_ids = {t['id'] for t in trades}
     new_count   = 0
 
     for r in records:
+        # 過濾機器人上線前的舊交易
+        if int(r.get('time', 0)) < bot_start_ts:
+            continue
         tid = str(r.get('tranId', r.get('time', '')))
         if tid in existing_ids:
             continue
