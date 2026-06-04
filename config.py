@@ -14,7 +14,7 @@ class Config:
     DAILY_REPORT   = '09:00'
     SIMULATION     = os.getenv('SIMULATION', 'true').lower() == 'true'
 
-    MIN_RR              = 1.5    # 低於此 RR 不進場
+    MIN_RR              = 2.0    # 低於此 RR 不進場
     MAX_DAILY_LOSS_PCT  = 0.03   # 每日最大虧損 3%，觸發後停止當日交易
     LIMIT_EXPIRY_MIN    = 60     # Limit 單超過幾分鐘未成交自動取消
 

@@ -197,62 +197,70 @@ class StrategyEngine:
 
         return False
 
-    # ── 完整 SMC 進場邏輯 ─────────────────────────────────────────────────────
+    # ── Bollinger Bands ───────────────────────────────────────────────────────
+    def _bollinger_bands(self, df: pd.DataFrame, period: int = 20, std: float = 2.0) -> dict:
+        ma = df['close'].rolling(period).mean()
+        sd = df['close'].rolling(period).std()
+        return {
+            'upper':  (ma + std * sd).iloc[-1],
+            'middle': ma.iloc[-1],
+            'lower':  (ma - std * sd).iloc[-1],
+        }
+
+    # ── 進場邏輯：HTF Bias + 流動性掃除 + BB + OB/FVG ────────────────────────
     def _check_direction(self, obs, fvgs, df_ref, df15m, price,
                          label, bias, min_rr) -> Optional[Signal]:
         liq = self._liquidity_levels(df_ref)
+        bb  = self._bollinger_bands(df_ref)
 
-        # ── 做多 ──────────────────────────────────────────────────────────────
-        if bias != 'bearish' and self._in_discount(df_ref, price):
+        # ── 做多：趨勢多 + 掃低 + 靠近 BB 下軌 + 碰到多方 OB/FVG ────────────
+        if bias != 'bearish':
             swept_low = self._swept_liquidity(df_ref, liq['lows'], 'bull')
-            if swept_low and self._has_displacement(df_ref, 'bull'):
-                b_obs  = [o for o in obs  if o['type']=='bullish'
+            if swept_low and price <= bb['lower'] * 1.02:
+                b_obs  = [o for o in obs  if o['type'] == 'bullish'
                           and o['low'] * 0.998 <= price <= o['high'] * 1.002
                           and self._is_fresh(df_ref, o)]
-                b_fvgs = [f for f in fvgs if f['type']=='bullish'
+                b_fvgs = [f for f in fvgs if f['type'] == 'bullish'
                           and f['low'] * 0.998 <= price <= f['high'] * 1.002
                           and self._is_fresh(df_ref, f)]
                 zone = (b_obs or b_fvgs)[0] if (b_obs or b_fvgs) else None
-                if zone and self._zone_rejection(df_ref, zone, 'bull') and self._choch(df15m, 'bullish'):
+                if zone:
                     sl  = swept_low * 0.9995
                     highs_above = [h for h in liq['highs'] if h > price]
-                    tp  = min(highs_above) if highs_above else price * 1.008
+                    tp  = min(highs_above) if highs_above else price * 1.012
                     rr  = abs(tp - price) / abs(price - sl) if abs(price - sl) > 0 else 0
                     if rr >= min_rr:
                         entry = (zone['high'] + zone['low']) / 2
                         tag   = 'OB+FVG' if b_obs and b_fvgs else ('OB' if b_obs else 'FVG')
                         return Signal('LONG', round(entry, 1), round(sl, 1), round(tp, 1),
-                                      f'{label} [{bias}/折扣區] 掃低+位移+{tag}+CHOCH↑ RR:{rr:.1f}')
+                                      f'{label} [{bias}/BB下軌] 掃低+{tag} RR:{rr:.1f}')
 
-        # ── 做空 ──────────────────────────────────────────────────────────────
-        if bias != 'bullish' and self._in_premium(df_ref, price):
+        # ── 做空：趨勢空 + 掃高 + 靠近 BB 上軌 + 碰到空方 OB/FVG ────────────
+        if bias != 'bullish':
             swept_high = self._swept_liquidity(df_ref, liq['highs'], 'bear')
-            if swept_high and self._has_displacement(df_ref, 'bear'):
-                s_obs  = [o for o in obs  if o['type']=='bearish'
+            if swept_high and price >= bb['upper'] * 0.98:
+                s_obs  = [o for o in obs  if o['type'] == 'bearish'
                           and o['low'] * 0.998 <= price <= o['high'] * 1.002
                           and self._is_fresh(df_ref, o)]
-                s_fvgs = [f for f in fvgs if f['type']=='bearish'
+                s_fvgs = [f for f in fvgs if f['type'] == 'bearish'
                           and f['low'] * 0.998 <= price <= f['high'] * 1.002
                           and self._is_fresh(df_ref, f)]
                 zone = (s_obs or s_fvgs)[0] if (s_obs or s_fvgs) else None
-                if zone and self._zone_rejection(df_ref, zone, 'bear') and self._choch(df15m, 'bearish'):
+                if zone:
                     sl  = swept_high * 1.0005
                     lows_below = [l for l in liq['lows'] if l < price]
-                    tp  = max(lows_below) if lows_below else price * 0.992
+                    tp  = max(lows_below) if lows_below else price * 0.988
                     rr  = abs(tp - price) / abs(price - sl) if abs(price - sl) > 0 else 0
                     if rr >= min_rr:
                         entry = (zone['high'] + zone['low']) / 2
                         tag   = 'OB+FVG' if s_obs and s_fvgs else ('OB' if s_obs else 'FVG')
                         return Signal('SHORT', round(entry, 1), round(sl, 1), round(tp, 1),
-                                      f'{label} [{bias}/溢價區] 掃高+位移+{tag}+CHOCH↓ RR:{rr:.1f}')
+                                      f'{label} [{bias}/BB上軌] 掃高+{tag} RR:{rr:.1f}')
 
         return None
 
     # ── 主入口 ────────────────────────────────────────────────────────────────
-    def get_signal(self, min_rr: float = 1.5, check_kill_zone: bool = True) -> Optional[Signal]:
-        if check_kill_zone and not self._in_kill_zone():
-            return None
-
+    def get_signal(self, min_rr: float = 2.0) -> Optional[Signal]:
         df_daily = self._df(self.client.get_klines(self.symbol, '1d', 50))
         df4h     = self._df(self.client.get_klines(self.symbol, '4h', 100))
         df1h     = self._df(self.client.get_klines(self.symbol, '1h', 100))
