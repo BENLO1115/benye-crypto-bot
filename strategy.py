@@ -12,8 +12,6 @@ class Signal:
     reason:      str
 
 class StrategyEngine:
-    # 倫敦 08-10 UTC、晚盤 11-14 UTC（台灣 19-22）、紐約 13-16 UTC
-    KILL_ZONES = [(8, 10), (11, 16)]
 
     def __init__(self, client, symbol: str = 'BTCUSDT'):
         self.client = client
@@ -36,54 +34,27 @@ class StrategyEngine:
         df['sl'] = df['low'].where(df['low']  == df['low'].rolling(w*2+1, center=True).min())
         return df
 
-    # ── Kill Zone 時段過濾 ────────────────────────────────────────────────────
-    def _in_kill_zone(self) -> bool:
-        hour = datetime.utcnow().hour
-        return any(s <= hour < e for s, e in self.KILL_ZONES)
-
-    # ── 日線偏向（HTF Bias）──────────────────────────────────────────────────
-    def _htf_bias(self, df_daily: pd.DataFrame) -> str:
-        s = self._swings(df_daily, w=5)
+    # ── 趨勢偏向（HH/HL = 多、LH/LL = 空）───────────────────────────────────
+    def _htf_bias(self, df: pd.DataFrame) -> str:
+        s     = self._swings(df, w=5)
         highs = s['sh'].dropna()
         lows  = s['sl'].dropna()
         if len(highs) >= 2 and len(lows) >= 2:
-            hh = highs.iloc[-1] > highs.iloc[-2]
-            hl = lows.iloc[-1]  > lows.iloc[-2]
-            lh = highs.iloc[-1] < highs.iloc[-2]
-            ll = lows.iloc[-1]  < lows.iloc[-2]
-            if hh and hl: return 'bullish'
-            if lh and ll: return 'bearish'
+            if highs.iloc[-1] > highs.iloc[-2] and lows.iloc[-1] > lows.iloc[-2]:
+                return 'bullish'
+            if highs.iloc[-1] < highs.iloc[-2] and lows.iloc[-1] < lows.iloc[-2]:
+                return 'bearish'
         return 'neutral'
 
-    # ── Premium / Discount 區間 ───────────────────────────────────────────────
-    def _in_discount(self, df: pd.DataFrame, price: float) -> bool:
-        """
-        近期擺動範圍的下半段（折扣區）= 適合做多
-        無法判斷時預設允許
-        """
-        s = self._swings(df, w=5)
-        highs = s['sh'].dropna()
-        lows  = s['sl'].dropna()
-        if len(highs) == 0 or len(lows) == 0:
-            return True
-        recent_high = highs.tail(3).max()
-        recent_low  = lows.tail(3).min()
-        equilibrium = (recent_high + recent_low) / 2
-        return price <= equilibrium
-
-    def _in_premium(self, df: pd.DataFrame, price: float) -> bool:
-        """
-        近期擺動範圍的上半段（溢價區）= 適合做空
-        """
-        s = self._swings(df, w=5)
-        highs = s['sh'].dropna()
-        lows  = s['sl'].dropna()
-        if len(highs) == 0 or len(lows) == 0:
-            return True
-        recent_high = highs.tail(3).max()
-        recent_low  = lows.tail(3).min()
-        equilibrium = (recent_high + recent_low) / 2
-        return price >= equilibrium
+    # ── Bollinger Bands ───────────────────────────────────────────────────────
+    def _bollinger_bands(self, df: pd.DataFrame, period: int = 20, std: float = 2.0) -> dict:
+        ma = df['close'].rolling(period).mean()
+        sd = df['close'].rolling(period).std()
+        return {
+            'upper':  (ma + std * sd).iloc[-1],
+            'middle': ma.iloc[-1],
+            'lower':  (ma - std * sd).iloc[-1],
+        }
 
     # ── 訂單塊偵測 ────────────────────────────────────────────────────────────
     def _order_blocks(self, df: pd.DataFrame) -> list:
@@ -139,123 +110,80 @@ class StrategyEngine:
                     return level
         return None
 
-    # ── 位移確認（含成交量驗證）──────────────────────────────────────────────
-    def _has_displacement(self, df: pd.DataFrame, direction: str) -> bool:
-        """
-        大實體K棒（實體 >= 55% 總幅）且成交量 >= 近20根均量 1.5 倍
-        確保是機構真實入場，非低量假動作
-        """
-        avg_vol = df['volume'].tail(20).mean()
-        for _, c in df.tail(5).iterrows():
-            body  = abs(c['close'] - c['open'])
-            total = c['high'] - c['low']
-            if total == 0:
-                continue
-            vol_ok = c['volume'] >= avg_vol * 1.2
-            if direction == 'bull' and c['close'] > c['open'] and body / total >= 0.45 and vol_ok:
-                return True
-            if direction == 'bear' and c['close'] < c['open'] and body / total >= 0.45 and vol_ok:
-                return True
-        return False
+    # ── 結構延續確認（15M BOS）───────────────────────────────────────────────
+    def _structure_continuation(self, df15m: pd.DataFrame, direction: str) -> bool:
+        """回採區域後，15M 出現結構突破（BOS）才確認進場"""
+        s     = self._swings(df15m, w=2)
+        price = df15m.iloc[-1]['close']
+        if direction == 'bull':
+            highs = s['sh'].dropna()
+            return len(highs) >= 1 and price > highs.iloc[-1]
+        lows = s['sl'].dropna()
+        return len(lows) >= 1 and price < lows.iloc[-1]
 
-    # ── 區間拒絕確認 ──────────────────────────────────────────────────────────
-    def _zone_rejection(self, df: pd.DataFrame, zone: dict, direction: str) -> bool:
-        zone_mid = (zone['high'] + zone['low']) / 2
-        for _, c in df.tail(3).iterrows():
-            total = c['high'] - c['low']
-            if total == 0:
-                continue
-            if direction == 'bull':
-                lower_wick = min(c['open'], c['close']) - c['low']
-                if lower_wick / total >= 0.40 and c['close'] > zone_mid:
-                    return True
-            else:
-                upper_wick = c['high'] - max(c['open'], c['close'])
-                if upper_wick / total >= 0.40 and c['close'] < zone_mid:
-                    return True
-        return False
-
-    # ── CHOCH（性格改變，比 BOS 更強的反轉確認）──────────────────────────────
-    def _choch(self, df: pd.DataFrame, direction: str) -> bool:
-        """
-        CHOCH = 先確認有前一段走勢，再看反轉突破
-        bullish: 前有下跌趨勢（更低低點）→ 價格突破近期擺動高點 → 性格轉變
-        bearish: 前有上漲趨勢（更高高點）→ 價格跌破近期擺動低點 → 性格轉變
-        """
-        s     = self._swings(df, w=3)
-        price = df.iloc[-1]['close']
-        highs = s['sh'].dropna()
-        lows  = s['sl'].dropna()
-
-        if direction == 'bullish' and len(highs) >= 1 and len(lows) >= 2:
-            prior_downtrend = lows.iloc[-1] < lows.iloc[-2]
-            return prior_downtrend and price > highs.iloc[-1]
-
-        if direction == 'bearish' and len(lows) >= 1 and len(highs) >= 2:
-            prior_uptrend = highs.iloc[-1] > highs.iloc[-2]
-            return prior_uptrend and price < lows.iloc[-1]
-
-        return False
-
-    # ── Bollinger Bands ───────────────────────────────────────────────────────
-    def _bollinger_bands(self, df: pd.DataFrame, period: int = 20, std: float = 2.0) -> dict:
-        ma = df['close'].rolling(period).mean()
-        sd = df['close'].rolling(period).std()
-        return {
-            'upper':  (ma + std * sd).iloc[-1],
-            'middle': ma.iloc[-1],
-            'lower':  (ma - std * sd).iloc[-1],
-        }
-
-    # ── 進場邏輯：HTF Bias + 流動性掃除 + BB + OB/FVG ────────────────────────
+    # ── 進場邏輯 ──────────────────────────────────────────────────────────────
     def _check_direction(self, obs, fvgs, df_ref, df15m, price,
                          label, bias, min_rr) -> Optional[Signal]:
         liq = self._liquidity_levels(df_ref)
         bb  = self._bollinger_bands(df_ref)
 
-        # ── 做多：趨勢多 + 掃低 + 靠近 BB 下軌 + 碰到多方 OB/FVG ────────────
-        if bias != 'bearish':
+        # ── 做多：趨勢多 + 掃低 + 回採(OB/FVG 或 BB上軌) + 15M結構延續 ──────
+        if bias == 'bullish':
             swept_low = self._swept_liquidity(df_ref, liq['lows'], 'bull')
-            if swept_low and price <= bb['lower'] * 1.02:
+            if swept_low:
                 b_obs  = [o for o in obs  if o['type'] == 'bullish'
                           and o['low'] * 0.998 <= price <= o['high'] * 1.002
                           and self._is_fresh(df_ref, o)]
                 b_fvgs = [f for f in fvgs if f['type'] == 'bullish'
                           and f['low'] * 0.998 <= price <= f['high'] * 1.002
                           and self._is_fresh(df_ref, f)]
-                zone = (b_obs or b_fvgs)[0] if (b_obs or b_fvgs) else None
-                if zone:
+                # 看漲時 BB 上軌是動態支撐
+                bb_hit = bb['upper'] * 0.998 <= price <= bb['upper'] * 1.005
+                zone   = (b_obs or b_fvgs)[0] if (b_obs or b_fvgs) else None
+
+                if (zone or bb_hit) and self._structure_continuation(df15m, 'bull'):
                     sl  = swept_low * 0.9995
                     highs_above = [h for h in liq['highs'] if h > price]
                     tp  = min(highs_above) if highs_above else price * 1.012
                     rr  = abs(tp - price) / abs(price - sl) if abs(price - sl) > 0 else 0
                     if rr >= min_rr:
-                        entry = (zone['high'] + zone['low']) / 2
-                        tag   = 'OB+FVG' if b_obs and b_fvgs else ('OB' if b_obs else 'FVG')
+                        if zone:
+                            entry = (zone['high'] + zone['low']) / 2
+                            tag   = 'OB+FVG' if b_obs and b_fvgs else ('OB' if b_obs else 'FVG')
+                        else:
+                            entry = price
+                            tag   = 'BB上軌'
                         return Signal('LONG', round(entry, 1), round(sl, 1), round(tp, 1),
-                                      f'{label} [{bias}/BB下軌] 掃低+{tag} RR:{rr:.1f}')
+                                      f'{label} [趨勢多] 掃低+{tag}回採+BOS↑ RR:{rr:.1f}')
 
-        # ── 做空：趨勢空 + 掃高 + 靠近 BB 上軌 + 碰到空方 OB/FVG ────────────
-        if bias != 'bullish':
+        # ── 做空：趨勢空 + 掃高 + 回採(OB/FVG 或 BB下軌) + 15M結構延續 ──────
+        if bias == 'bearish':
             swept_high = self._swept_liquidity(df_ref, liq['highs'], 'bear')
-            if swept_high and price >= bb['upper'] * 0.98:
+            if swept_high:
                 s_obs  = [o for o in obs  if o['type'] == 'bearish'
                           and o['low'] * 0.998 <= price <= o['high'] * 1.002
                           and self._is_fresh(df_ref, o)]
                 s_fvgs = [f for f in fvgs if f['type'] == 'bearish'
                           and f['low'] * 0.998 <= price <= f['high'] * 1.002
                           and self._is_fresh(df_ref, f)]
-                zone = (s_obs or s_fvgs)[0] if (s_obs or s_fvgs) else None
-                if zone:
+                # 看跌時 BB 下軌是動態阻力
+                bb_hit = bb['lower'] * 0.995 <= price <= bb['lower'] * 1.002
+                zone   = (s_obs or s_fvgs)[0] if (s_obs or s_fvgs) else None
+
+                if (zone or bb_hit) and self._structure_continuation(df15m, 'bear'):
                     sl  = swept_high * 1.0005
                     lows_below = [l for l in liq['lows'] if l < price]
                     tp  = max(lows_below) if lows_below else price * 0.988
                     rr  = abs(tp - price) / abs(price - sl) if abs(price - sl) > 0 else 0
                     if rr >= min_rr:
-                        entry = (zone['high'] + zone['low']) / 2
-                        tag   = 'OB+FVG' if s_obs and s_fvgs else ('OB' if s_obs else 'FVG')
+                        if zone:
+                            entry = (zone['high'] + zone['low']) / 2
+                            tag   = 'OB+FVG' if s_obs and s_fvgs else ('OB' if s_obs else 'FVG')
+                        else:
+                            entry = price
+                            tag   = 'BB下軌'
                         return Signal('SHORT', round(entry, 1), round(sl, 1), round(tp, 1),
-                                      f'{label} [{bias}/BB上軌] 掃高+{tag} RR:{rr:.1f}')
+                                      f'{label} [趨勢空] 掃高+{tag}回採+BOS↓ RR:{rr:.1f}')
 
         return None
 
@@ -266,14 +194,18 @@ class StrategyEngine:
         df1h     = self._df(self.client.get_klines(self.symbol, '1h', 100))
         df15m    = self._df(self.client.get_klines(self.symbol, '15m', 60))
         price    = df15m.iloc[-1]['close']
-        bias     = self._htf_bias(df_daily)
 
-        signal = self._check_direction(
-            self._order_blocks(df4h), self._fvg(df4h), df4h, df15m, price, '4H', bias, min_rr
-        )
-        if signal:
-            return signal
+        # 日線趨勢優先，中性則用 4H 趨勢
+        bias = self._htf_bias(df_daily)
+        if bias == 'neutral':
+            bias = self._htf_bias(df4h)
 
-        return self._check_direction(
-            self._order_blocks(df1h), self._fvg(df1h), df1h, df15m, price, '1H', bias, min_rr
-        )
+        for tf_label, df_ref in [('4H', df4h), ('1H', df1h), ('15M', df15m)]:
+            signal = self._check_direction(
+                self._order_blocks(df_ref), self._fvg(df_ref),
+                df_ref, df15m, price, tf_label, bias, min_rr
+            )
+            if signal:
+                return signal
+
+        return None
